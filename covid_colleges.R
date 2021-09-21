@@ -139,4 +139,96 @@ single_college_county_cases %>%
   guides(color = FALSE) +
   theme_minimal()
 
+##----------counties with no schools------------
 
+college_counties <- all_colleges %>% distinct(STCOUNTYFP) %>% drop_na()
+college_counties <- as.list(college_counties$STCOUNTYFP)
+
+`%!in%` <- Negate(`%in%`)
+
+no_colleges_counties <- cases %>%
+  filter(fips %!in% college_counties) %>% 
+  drop_na() %>%
+# 1268 counties with no colleges (and that have a listed fips code)
+  left_join(populations, by = c("fips" = "fip_stxt")) %>% 
+  mutate(cases_per100k = cases/pop_estimate_2019 *100000) %>% 
+  filter('2021-08-30' <= date & date <= today) %>%
+  # gets rid of two weirdly high outlier counties
+  filter(cases_per100k < 30000)
+  
+# box plot of no collge counties 
+no_colleges_counties %>% 
+  # plot:
+  ggplot(aes(x = date, y = cases_per100k, group = date)) +
+  geom_boxplot() + 
+  labs(x = '',
+       y = 'County Cases per 100k',
+       title = 'COVID Cases Around College Start of Semester',
+       color = 'National COVID Cases per 100k') +
+  guides(color = FALSE) +
+  theme_minimal()
+
+
+##----------counties with multiple schools------------
+all_colleges <- read_csv("data/all-schools-info-USdeptedu.csv") %>% 
+  mutate(ZIP = substr(ZIP, 1, 5)) %>% 
+  mutate(ZIP = as.character(str_pad(ZIP, 5, pad = "0"))) %>% 
+  left_join(zips, by = 'ZIP')
+
+multi_college_counties <- all_colleges %>% 
+  count(STCOUNTYFP) %>% 
+  filter(n > 1)
+
+multi_college_counties <- as.list(multi_college_counties$STCOUNTYFP)
+# 1176 multi-college counties
+
+multi_college_county <- all_colleges %>% 
+  filter(STCOUNTYFP %in% multi_college_counties) %>% 
+  clean_names() %>% 
+  filter(state != 'PR')
+
+multi_college_county_cases <- multi_college_county %>% 
+  left_join(cases, by = c("stcountyfp" = "fips")) %>% 
+  clean_names() %>%
+  group_by(instnm) %>% 
+  filter('2021-08-30' <= date & date <= today) %>%
+  left_join(populations, by = c("countyname" = "area_name", "state_x" = "state")) %>% 
+  select(unitid, opeid, opeid6, instnm, city, state_x, state_y, countyname,
+         fip_stxt, zip, latitude, longitude, insturl, main, preddeg,
+         date, cases, deaths, pop_estimate_2019) %>% 
+  mutate(cases_per100k = (cases/pop_estimate_2019)*100000) 
+
+
+##----------combined visualziations------------
+
+# COMBINED box plot - no colleges plus one college
+
+colors <- c("Sepal Width" = "blue", "Petal Length" = "red", "Petal Width" = "orange")
+
+single_college_county_cases %>% 
+  group_by(instnm) %>%
+  arrange(countyname) %>% 
+  # selects only the first county for all colleges with multiple counties
+  top_n(n = 1, wt=countyname) %>% 
+  # gets rid of one weirdly high outlier
+  filter(cases_per100k < 30000) %>% 
+  # plot:
+  ggplot(aes(x = date, y = cases_per100k, group = date)) +
+  geom_boxplot(color="purple", fill="blue", alpha=0.2) + 
+  geom_boxplot(data = no_colleges_counties, aes(x = date, y = cases_per100k, group = date), 
+               color="red", fill="orange", alpha=0.2) + 
+  # adding national covid cases 
+  geom_line(data = national_cases, 
+            aes(x = date, y = nat_cases_per100k, group = 1), color = 'black') +
+  labs(x = '',
+       y = 'County Cases per 100k',
+       title = 'COVID Cases Around College Start of Semester',
+       color = 'National COVID Cases per 100k') +
+  guides(color = FALSE) +
+  theme_minimal() +
+  scale_color_manual(values = "red", label = "We are red points")
+
+# 3 rows that are weirdly high!! - currently dropping them 
+
+
+  
